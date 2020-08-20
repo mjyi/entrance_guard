@@ -1,36 +1,153 @@
-use dotenv::dotenv;
-use std::env;
-use std::io;
+use std::{env, io, sync::Mutex};
+use std::fmt::{Display, Formatter, Result as FmtResult};
 
-use actix_web::http::{header, Method, StatusCode};
+use actix_web::http::StatusCode;
 use actix_web::{
-    error, guard, middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer,
-    Result,Responder
+    middleware, web, App, HttpRequest, HttpResponse, HttpServer, ResponseError,
 };
+use anyhow::{anyhow, Result};
+use dotenv::dotenv;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, to_string_pretty};
 
 #[derive(Clone, Debug)]
 struct AppState {
     user_name: String,
     password: String,
     basic_auth: String,
-    login_auth: String,
+    access_auth: Option<String>,
+    company_id: String,
 }
 
-async fn index(
-    req: HttpRequest,
-) -> HttpResponse {
-    println!("{:?}", req);
-    
+#[derive(Debug, Serialize, Deserialize)]
+struct ApiResp<T> {
+    #[serde(rename = "responseCode")]
+    response_code: Option<i32>,
+    message: String,
+    data: Option<T>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Passports {
+    #[serde(rename = "qrCode")]
+    qr_code: String,
+    status: i32,
+}
+
+#[derive(Deserialize)]
+struct AuthRequest {
+    reload: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RtData {
+    code: i32, 
+    msg: String,
+    data: Option<String>,
+}
+
+impl RtData {
+    fn new(code: i32, msg: String, data: Option<String>) -> Self {
+        RtData{
+            code, msg, data
+        }       
+    }
+}
+
+impl Display for RtData {
+    fn fmt(&self, f: &mut Formatter) -> FmtResult {
+        write!(f, "{}", to_string_pretty(self).unwrap())
+    }
+}
+
+// impl ResponseError for RtData {
+//     // builds the actual response to send back when an error occurs
+//     fn error_response(&self) -> web::HttpResponse {
+//         let err_json = json!({ "error": self.msg });
+//         web::HttpResponse::build(StatusCode::from_u16(self.status).unwrap())
+//             .json(err_json)
+//     }
+// }
+
+
+async fn index(req: HttpRequest, state: web::Data<Mutex<AppState>>) -> HttpResponse {
+    println!("{:?}, {:?}", req, state);
+
     HttpResponse::Ok().body("ok")
 }
 
+async fn passports(
+    web::Query(info): web::Query<AuthRequest>,
+    state: web::Data<Mutex<AppState>>,
+) -> HttpResponse {
+    let mut state = state.lock().unwrap();
+    let mut reload;
+    reload = info.reload.unwrap_or(false);
+    if !reload {
+        reload = state.access_auth.is_none();
+    }
+    println!("{}", reload);
 
-fn api_login() {
+    let mut access_auth = state.access_auth.clone().unwrap_or(String::new());
+    if reload {
+        let result = api_login(&state.user_name, &state.password, &state.basic_auth).await;
+        if let Err(e) = result {
+            return HttpResponse::Ok().json(RtData::new(3, format!("{:?}", e), None));
+        }
+        access_auth = result.unwrap();
+        state.access_auth = Some(access_auth.clone());
+    }
 
+    let mut code = 0;
+    let mut qr_code = None;
+    let result = api_entrance_guard(&access_auth, &state.company_id).await;
+    if let Err(_) = result {
+        code = 3;
+    } else {
+        qr_code = Some(result.unwrap().clone())
+    }
+
+    HttpResponse::Ok().json(RtData::new(code, "".into(), qr_code))
 }
 
-fn api_access_card() {
+async fn api_login(user_name: &str, password: &str, auth: &str) -> Result<String> {
+    let resp: ApiResp<String> = reqwest::Client::new()
+        .get(" http://heda.greentownit.com:8888/app/user_center/token")
+        .header(reqwest::header::AUTHORIZATION, auth)
+        .query(&[
+            ("grantType", "password"),
+            ("username", user_name),
+            ("password", password),
+        ])
+        .send()
+        .await?
+        .json()
+        .await?;
 
+    if resp.response_code == Some(0) {
+        if let Some(data) = resp.data {
+            return Ok(data);
+        }
+    }
+    Err(anyhow!("{}", resp.message))
+}
+
+async fn api_entrance_guard(auth: &str, company_id: &str) -> Result<String> {
+    let resp: ApiResp<Passports> = reqwest::Client::new()
+        .get("http://heda.greentownit.com:8888/app/entrance_guard/2/passports/me")
+        .header(reqwest::header::AUTHORIZATION, auth)
+        .query(&[("companyId", company_id)])
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    if resp.response_code == Some(0) {
+        if let Some(data) = resp.data {
+            return Ok(data.qr_code);
+        }
+    }
+    Err(anyhow!("{}", resp.message))
 }
 
 #[actix_rt::main]
@@ -40,17 +157,29 @@ async fn main() -> io::Result<()> {
     let user_name = env::var("USER_NAME").expect("USER_NAME must be set");
     let password = env::var("PASSWORD").expect("PASSWORD must be set");
     let basic_auth = env::var("AUTH").unwrap_or_else(|_| "Basic YXBwOmFwcA==".to_string());
+    let company_id = env::var("ID").expect("ID must be set");
 
-    let state = AppState{ user_name, password, basic_auth, login_auth: String::new()};
+    let state = AppState {
+        user_name,
+        password,
+        basic_auth,
+        company_id,
+        access_auth: None,
+    };
+
+    let data = web::Data::new(Mutex::new(state));
 
     HttpServer::new(move || {
         App::new()
-            .data(state.clone())
+            .app_data(data.clone())
             .wrap(middleware::Logger::default())
-            .service(web::resource("/").to(index))
+            .route("/", web::get().to(index))
+            .route("/passports", web::get().to(passports))
+            .default_service(
+                web::route().to(|| HttpResponse::NotFound())
+            )
     })
     .bind(addr)?
     .run()
     .await
-
 }
