@@ -39,10 +39,7 @@ jobs:
 
     - name: Check
       working-directory: ./server
-      run: |
-        for target in ${{ env.targets }}; do
-          cargo check --target=$target --all-targets
-        done
+      run: cargo check
         
   typescript:
     name: TypeScript
