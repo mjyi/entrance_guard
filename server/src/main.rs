@@ -1,14 +1,13 @@
-use std::{env, io, sync::Mutex};
 use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::{env, io, sync::Mutex};
 
-use actix_web::http::StatusCode;
-use actix_web::{
-    middleware, web, App, HttpRequest, HttpResponse, HttpServer, ResponseError,
-};
+use actix_web::{http, middleware, web, App, HttpRequest, HttpResponse, HttpServer};
+use actix_cors::Cors;
+use actix_files::Files;
 use anyhow::{anyhow, Result};
 use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, to_string_pretty};
+use serde_json::to_string_pretty;
 
 #[derive(Clone, Debug)]
 struct AppState {
@@ -41,16 +40,14 @@ struct AuthRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct RtData {
-    code: i32, 
+    code: i32,
     msg: String,
     data: Option<String>,
 }
 
 impl RtData {
     fn new(code: i32, msg: String, data: Option<String>) -> Self {
-        RtData{
-            code, msg, data
-        }       
+        RtData { code, msg, data }
     }
 }
 
@@ -59,16 +56,6 @@ impl Display for RtData {
         write!(f, "{}", to_string_pretty(self).unwrap())
     }
 }
-
-// impl ResponseError for RtData {
-//     // builds the actual response to send back when an error occurs
-//     fn error_response(&self) -> web::HttpResponse {
-//         let err_json = json!({ "error": self.msg });
-//         web::HttpResponse::build(StatusCode::from_u16(self.status).unwrap())
-//             .json(err_json)
-//     }
-// }
-
 
 async fn index(req: HttpRequest, state: web::Data<Mutex<AppState>>) -> HttpResponse {
     println!("{:?}, {:?}", req, state);
@@ -173,11 +160,15 @@ async fn main() -> io::Result<()> {
         App::new()
             .app_data(data.clone())
             .wrap(middleware::Logger::default())
-            .route("/", web::get().to(index))
+            .wrap(
+                Cors::new()
+                    .allowed_header(http::header::CONTENT_TYPE)
+                    .max_age(3600)
+                    .finish())
+            // .route("/", web::get().to(index))
             .route("/passports", web::get().to(passports))
-            .default_service(
-                web::route().to(|| HttpResponse::NotFound())
-            )
+            .service(Files::new("/", "./ui/dist/entrance-guard").index_file("index.html"))
+            .default_service(web::route().to(|| HttpResponse::NotFound()))
     })
     .bind(addr)?
     .run()

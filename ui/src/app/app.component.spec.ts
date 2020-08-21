@@ -16,16 +16,16 @@ describe('AppComponent', () => {
     expect(app).toBeTruthy();
   });
 
-  it(`should have as title 'access-card'`, () => {
+  it(`should have as title 'entrance-guard'`, () => {
     const fixture = TestBed.createComponent(AppComponent);
     const app = fixture.componentInstance;
-    expect(app.title).toEqual('access-card');
+    expect(app.title).toEqual('entrance-guard');
   });
 
   it('should render title', () => {
     const fixture = TestBed.createComponent(AppComponent);
     fixture.detectChanges();
     const compiled = fixture.nativeElement;
-    expect(compiled.querySelector('.content span').textContent).toContain('access-card app is running!');
+    expect(compiled.querySelector('.content span').textContent).toContain('entrance-guard app is running!');
   });
 });
