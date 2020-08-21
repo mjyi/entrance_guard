@@ -1,9 +1,10 @@
-# ACCESS CARD
+# entrance_guard
 
 A `.env` file looks like this
 
 ```
-HOST=localhost:1233
+ADDR=localhost:1233
 USER_NAME=
 PASSWORD=
+AUTH=
 ```
