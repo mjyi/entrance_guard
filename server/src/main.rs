@@ -1,7 +1,8 @@
+#[macro_use] extern crate log;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::{env, io, sync::Mutex};
 
-use actix_web::{http, middleware, web, App, HttpRequest, HttpResponse, HttpServer};
+use actix_web::{http, middleware, web, App, HttpResponse, HttpServer};
 use actix_cors::Cors;
 use actix_files::Files;
 use anyhow::{anyhow, Result};
@@ -57,12 +58,6 @@ impl Display for RtData {
     }
 }
 
-async fn index(req: HttpRequest, state: web::Data<Mutex<AppState>>) -> HttpResponse {
-    println!("{:?}, {:?}", req, state);
-
-    HttpResponse::Ok().body("ok")
-}
-
 async fn passports(
     web::Query(info): web::Query<AuthRequest>,
     state: web::Data<Mutex<AppState>>,
@@ -73,7 +68,6 @@ async fn passports(
     if !reload {
         reload = state.access_auth.is_none();
     }
-    println!("{}", reload);
 
     let mut access_auth = state.access_auth.clone().unwrap_or(String::new());
     if reload {
@@ -139,6 +133,7 @@ async fn api_entrance_guard(auth: &str, company_id: &str) -> Result<String> {
 
 #[actix_rt::main]
 async fn main() -> io::Result<()> {
+    pretty_env_logger::init();
     dotenv().ok();
     let addr = env::var("ADDR").expect("DATABASE_URL must be set");
     let user_name = env::var("USER_NAME").expect("USER_NAME must be set");
@@ -167,7 +162,7 @@ async fn main() -> io::Result<()> {
                     .finish())
             // .route("/", web::get().to(index))
             .route("/passports", web::get().to(passports))
-            .service(Files::new("/", "./ui/dist/entrance-guard").index_file("index.html"))
+            .service(Files::new("/", "./entrance-guard").index_file("index.html"))
             .default_service(web::route().to(|| HttpResponse::NotFound()))
     })
     .bind(addr)?
