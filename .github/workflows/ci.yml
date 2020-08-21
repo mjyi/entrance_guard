@@ -17,8 +17,6 @@ jobs:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
     name: Rust Cross
-    env:
-      targets: "x86_64-unknown-linux-musl"
 
     steps:
     - name: Checkout repository
@@ -31,10 +29,6 @@ jobs:
         profile: minimal
         override: true
 
-    - name: Install Rust targets
-      working-directory: ./server
-      run: rustup target add ${{ env.targets }}
-
     - name: Cache cargo directories
       uses: actions/cache@v2
       with:
@@ -43,12 +37,12 @@ jobs:
           ~/.cargo/git
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Check
-      working-directory: ./server
-      run: |
-        for target in ${{ env.targets }}; do
-          cargo check --target=$target --all-targets
-        done
+#     - name: Check
+#       working-directory: ./server
+#       run: |
+#         for target in ${{ env.targets }}; do
+#           cargo check --target=$target --all-targets
+#         done
         
   typescript:
     name: TypeScript
