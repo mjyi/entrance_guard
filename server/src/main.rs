@@ -1,4 +1,3 @@
-#[macro_use] extern crate log;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::{env, io, sync::Mutex};
 
@@ -9,6 +8,7 @@ use anyhow::{anyhow, Result};
 use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
+
 
 #[derive(Clone, Debug)]
 struct AppState {
@@ -84,6 +84,7 @@ async fn passports(
     let result = api_entrance_guard(&access_auth, &state.company_id).await;
     if let Err(_) = result {
         code = 3;
+        state.access_auth = None
     } else {
         qr_code = Some(result.unwrap().clone())
     }
@@ -135,11 +136,12 @@ async fn api_entrance_guard(auth: &str, company_id: &str) -> Result<String> {
 async fn main() -> io::Result<()> {
     pretty_env_logger::init();
     dotenv().ok();
-    let addr = env::var("ADDR").expect("DATABASE_URL must be set");
+    let addr = env::var("ADDR").expect("ADDR must be set");
     let user_name = env::var("USER_NAME").expect("USER_NAME must be set");
     let password = env::var("PASSWORD").expect("PASSWORD must be set");
     let basic_auth = env::var("AUTH").unwrap_or_else(|_| "Basic YXBwOmFwcA==".to_string());
     let company_id = env::var("ID").expect("ID must be set");
+    let dir = env::var("DIR").unwrap_or_else(|_| "./entrance-guard".to_string());
 
     let state = AppState {
         user_name,
@@ -152,17 +154,18 @@ async fn main() -> io::Result<()> {
     let data = web::Data::new(Mutex::new(state));
 
     HttpServer::new(move || {
+        let cors = Cors::new()
+            .allowed_header(http::header::CONTENT_TYPE)
+            .max_age(3600)
+            .finish();
+            
+        
         App::new()
             .app_data(data.clone())
             .wrap(middleware::Logger::default())
-            .wrap(
-                Cors::new()
-                    .allowed_header(http::header::CONTENT_TYPE)
-                    .max_age(3600)
-                    .finish())
-            // .route("/", web::get().to(index))
+            .wrap(cors)
             .route("/passports", web::get().to(passports))
-            .service(Files::new("/", "./entrance-guard").index_file("index.html"))
+            .service(Files::new("/", dir.clone()).index_file("index.html"))
             .default_service(web::route().to(|| HttpResponse::NotFound()))
     })
     .bind(addr)?
