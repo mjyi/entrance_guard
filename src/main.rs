@@ -134,7 +134,7 @@ async fn api_entrance_guard(auth: &str, company_id: &str) -> Result<String> {
 
 #[actix_rt::main]
 async fn main() -> io::Result<()> {
-    pretty_env_logger::init();
+    pretty_env_logger::init_timed();
     dotenv().ok();
     let addr = env::var("ADDR").expect("ADDR must be set");
     let user_name = env::var("USER_NAME").expect("USER_NAME must be set");
@@ -162,7 +162,7 @@ async fn main() -> io::Result<()> {
         
         App::new()
             .app_data(data.clone())
-            .wrap(middleware::Logger::default())
+            .wrap(middleware::Logger::new(r#"%a "%r" %s %b bytes %Ts"#))
             .wrap(cors)
             .route("/passports", web::get().to(passports))
             .service(Files::new("/", dir.clone()).index_file("index.html"))
